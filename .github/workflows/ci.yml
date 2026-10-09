@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot
+      - name: Import project (also catches script parse errors)
+        run: |
+          ./godot --headless --editor --quit --path . 2>&1 | tee import.log
+          ! grep -E "SCRIPT ERROR|Parse Error" import.log
+      - name: Run tests
+        run: ./godot --headless --path . --script res://tests/run_tests.gd
+
+  export:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot and export templates
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip && mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot
+          curl -sSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          unzip -q templates.tpz -d tmp && mv tmp/templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+      - name: Export
+        run: |
+          ./godot --headless --editor --quit --path . || true
+          mkdir -p build/windows build/linux
+          ./godot --headless --path . --export-release "Windows Desktop" build/windows/UnnaturalSelection.exe
+          ./godot --headless --path . --export-release "Linux" build/linux/UnnaturalSelection.x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UnnaturalSelection-windows
+          path: build/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UnnaturalSelection-linux
+          path: build/linux

@@ -1,0 +1,40 @@
+; Engine configuration file.
+; Unnatural Selection remake - an engine reimplementation that loads the
+; player's own copy of the original 1993 game data.
+
+config_version=5
+
+[application]
+
+config/name="Unnatural Selection (Remake)"
+config/description="Engine reimplementation of Maxis' Unnatural Selection (1993). Requires the original game files."
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[autoload]
+
+Settings="*res://scripts/autoload/Settings.gd"
+Assets="*res://scripts/autoload/Assets.gd"
+
+[display]
+
+window/size/viewport_width=320
+window/size/viewport_height=200
+window/size/window_width_override=1280
+window/size/window_height_override=800
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+window/stretch/scale_mode="integer"
+window/handheld/orientation=0
+
+[gui]
+
+theme/custom="res://ui_theme.tres"
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0, 0, 0, 1)

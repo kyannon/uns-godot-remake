@@ -1,0 +1,31 @@
+# Godot
+.godot/
+*.translation
+export_credentials.cfg
+build/
+
+# Never commit original game data
+/UNS/
+/game/
+/DATA/
+/data/
+*.BIN
+*.bin
+*.ILN
+*.iln
+*.DSN
+*.dsn
+*.PAL
+*.pal
+*.FNT
+*.fnt
+*.LAB
+*.lab
+*.EXE
+*.exe
+extracted/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.tmp
