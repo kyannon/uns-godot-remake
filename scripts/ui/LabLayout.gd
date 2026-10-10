@@ -30,9 +30,14 @@ const DISK_DRIVE := Rect2(286, 118, 32, 80)
 
 # NPR "fuel tank": click the labels. Order: OFF, 25%, FULL, MAX
 const NPR_LABELS := [Rect2(46, 100, 22, 8), Rect2(46, 92, 22, 8), Rect2(46, 76, 22, 8), Rect2(46, 66, 22, 8)]
-const NPR_LEVEL_Y := [105, 96, 80, 70]
-const NPR_TUBE := Rect2(70, 63, 8, 46)
-const NPR_SCALE_X := 84
+const NPR_LEVEL_Y := [104, 96, 80, 71]          # tick marks for OFF, 25%, FULL, MAX
+const NPR_TRACK := Rect2(80, 64, 10, 46)         # drag area around the slider track (al1 #11 at 81,68)
+const NPR_KNOB := 12                             # al1: red ball, 7x6, centred on the level
+const NPR_KNOB_X := 81
+const NPR_METER := 13                            # al1: red level marker in the vial, 10x3
+const NPR_METER_X := 67
+const NPR_GLASS_SRC := Rect2(68, 98, 10, 2)      # clean glass rows used to hide the baked-in marker
+const NPR_BAKED_MARKER := Rect2(68, 104, 10, 2)
 
 # Zoom buttons (al3 #79 panel at 99,65)
 const ZOOM_PANEL := {"sprite": 79, "pos": Vector2(99, 65)}
@@ -40,8 +45,14 @@ const ZOOM_BUTTONS := [Rect2(99, 65, 34, 15), Rect2(99, 80, 34, 15), Rect2(99, 9
 const ZOOM_ICONS := [Rect2(102, 67, 12, 12), Rect2(102, 82, 12, 12), Rect2(102, 97, 12, 12)]
 
 # Clock
-const CLOCK_CENTER := Vector2(113, 23)
-const CLOCK_RADIUS := 16.0
+# the 12 dark-green second lights around the clock face, clockwise from the top
+const CLOCK_LIGHTS := [
+	[Vector2(113, 9), Vector2(113, 10)], [Vector2(119, 12)], [Vector2(124, 16)],
+	[Vector2(126, 21)], [Vector2(124, 26)], [Vector2(119, 30)],
+	[Vector2(113, 32), Vector2(113, 33)], [Vector2(107, 30)], [Vector2(102, 26)],
+	[Vector2(100, 21), Vector2(101, 21)], [Vector2(102, 16)], [Vector2(107, 12)],
+]
+const COL_CLOCK_LIT := 38
 const CLOCK_TIME := Vector2(104, 19)
 const CLOCK_DATE := Vector2(106, 43)
 
@@ -76,6 +87,19 @@ const FOOD_FLOW := [  # level, off sprite (on = +1), pos
 	{"n": 3, "sprite": 72, "pos": Vector2(231, 136)},
 ]
 const FOOD_TUBE := {"sprite": 126, "pos": Vector2(254, 145)}  # al1 126..129 = levels 0..3
+
+# Disk-drive menu (shown inside the view screen, as in the original)
+const MENU_BAR := 44                       # al1: FILE OPTIONS VARIABLES BATTLE, 170x8
+const MENU_HEADERS := [Rect2(3, 0, 22, 8), Rect2(30, 0, 36, 8), Rect2(74, 0, 42, 8), Rect2(125, 0, 30, 8)]
+const MENU_DROPS := [  # al1 sprite, x offset in the pen, item labels
+	{"sprite": 46, "x": 3, "items": ["NEW", "LOAD", "SAVE", "SAVE AS", "EXIT"]},
+	{"sprite": 59, "x": 30, "items": ["SOUNDS", "FAST PANEL", "JOYSTICK", "MOUSE", "VOICE", "PIP ANIMS"]},
+	{"sprite": 35, "x": 74, "items": ["BODY", "LAB"]},
+	{"sprite": 43, "x": 125, "items": ["BEGINNER", "NORMAL", "EXPERT", "PICK ISLAND"]},
+]
+const MENU_ITEM_H := 7
+const MENU_REMAKE_ITEMS := ["INTEGER SCALING", "FULLSCREEN", "DEMO PENS", "GAME FOLDER..."]
+const COL_MENU_TEXT := 21
 
 # Creature type icons for the SNI (al1) and Zoom-3 portraits (back.bin)
 const TYPE_ICON := [15, 16, 17, 84, 86]

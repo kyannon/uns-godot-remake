@@ -24,7 +24,7 @@ const MODE_NAMES := ["WANDER", "EAT", "SEARCH", "SEEK", "FIGHT", "MATE", "ESCAPE
 enum Need { FIGHT, MATE, EAT }
 
 # NPR settings: OFF, 25%, FULL, MAX -> game seconds per real second. TUNE
-const NPR_RATE := [0.0, 2.0, 8.0, 24.0]
+const NPR_RATE := [0.0, 4.0, 16.0, 64.0]
 # Food flow resupply interval in game seconds (lab.def: 240/120/60)
 var resupply_interval := [0, 240, 120, 60]
 # Mutation dial: % chance per birth, % change per mutation (lab.def guesses)
@@ -37,10 +37,14 @@ var virus_result := [50, 100, 50]       # % effect of X (stamina), Y (vision), Z
 var dominant_by_speed := false          # Dominant Encounter Trait: Need (default) or Speed
 
 # TUNE: internal scales
-const STAMINA_SCALE := 16.0     # stamina pool = stamina gene * 16
+const STAMINA_SCALE := 8.0      # stamina pool = stamina gene * 8
 const NEED_RISE := 1.0 / 128.0  # need rises by gene/128 per action
-const MOVE_COST := 4.0          # stamina per step
-const IDLE_COST := 1.5          # stamina per action spent not moving
+const BASE_COST := 2.0          # stamina burned per action just by being alive
+const MOVE_COST := 1.0          # extra stamina per step taken
+const BODY_COST := 1.0 / 48.0   # extra per point of speed + strength (big, fast bodies burn more)
+const STARVE_COST := 6.0        # extra per action while the Eat need is maxed out (starving)
+const NUTRITION_REF := 80.0     # LAB.DEF default nutrition value
+const MIN_BIRTH_STAMINA := 0.25 # a newborn needs at least this fraction of its max, paid by the parents
 const MATE_COST := 0.2          # fraction of max stamina spent by each parent
 const DAMAGE_SCALE := 4.0       # strength -> stamina damage
 const MATE_ACTIONS := 3
@@ -75,6 +79,8 @@ var timer := PackedInt32Array()
 var acc := PackedFloat32Array()
 var born_at := PackedFloat32Array()
 var free_slots: Array[int] = []
+var living := PackedInt32Array()      # slots of living creatures (iterate this, not CAPACITY)
+var _living_pos := PackedInt32Array() # slot -> index in `living`
 var population := 0
 
 # --- settings / clock ------------------------------------------------------
@@ -107,6 +113,7 @@ func _init() -> void:
 	for arr in [stamina, acc, born_at]:
 		arr.resize(CAPACITY)
 	genes.resize(CAPACITY * Genome.G.COUNT)
+	_living_pos.resize(CAPACITY)
 	needs.resize(CAPACITY * 3)
 	for i in range(CAPACITY - 1, -1, -1):
 		free_slots.append(i)
@@ -233,10 +240,33 @@ func _cell_pixels(cell: int) -> PackedInt32Array:
 	return out
 
 
+## Food density by flow level: 0 none, 1 sparse, 2 half, 3 solid.
+static func food_pattern(x: int, y: int, level: int) -> bool:
+	match level:
+		3:
+			return true
+		2:
+			return (x + y) % 2 == 0
+		1:
+			return x % 2 == 0 and y % 2 == 0
+	return false
+
+
 func _fill_cell(cell: int) -> void:
 	for i in _cell_pixels(cell):
-		if not solid[i]:
+		if not solid[i] and food_pattern(i % W, i / W, food_flow):
 			food[i] = 1
+
+
+## Changing the food flow re-seeds every food cell at the new density
+## (0 removes all food from the pen).
+func set_food_flow(level: int) -> void:
+	food_flow = level
+	_resupply_acc = 0.0
+	for i in W * H:
+		if food[i] and not food_pattern(i % W, i / W, level):
+			food[i] = 0
+	resupply_food()
 
 
 func _clear_cell(cell: int) -> void:
@@ -298,7 +328,7 @@ func _stamp(i: int, on: bool) -> void:
 
 
 ## Adds a creature; returns its slot or -1 if no room.
-func spawn(x: int, y: int, g: PackedInt32Array, vir: int = 0, is_sterile: bool = false) -> int:
+func spawn(x: int, y: int, g: PackedInt32Array, vir: int = 0, is_sterile: bool = false, start_stamina: float = -1.0) -> int:
 	if free_slots.is_empty() or not can_place(x, y):
 		return -1
 	var i: int = free_slots.pop_back()
@@ -314,13 +344,15 @@ func spawn(x: int, y: int, g: PackedInt32Array, vir: int = 0, is_sterile: bool =
 	needs[i * 3] = 0.0
 	needs[i * 3 + 1] = 0.0
 	needs[i * 3 + 2] = 0.0
-	stamina[i] = max_stamina(i)
+	stamina[i] = max_stamina(i) if start_stamina < 0.0 else minf(start_stamina, max_stamina(i))
 	mode[i] = Mode.JUST_BORN
 	partner[i] = -1
 	timer[i] = 2
 	acc[i] = rng.randf()
 	born_at[i] = game_time
 	_stamp(i, true)
+	_living_pos[i] = living.size()
+	living.append(i)
 	population += 1
 	return i
 
@@ -343,6 +375,11 @@ func kill(i: int, leave_corpse: bool = true) -> void:
 		if mode[p2] == Mode.FIGHT or mode[p2] == Mode.MATE:
 			mode[p2] = Mode.WANDER
 	alive[i] = 0
+	var pos := _living_pos[i]
+	var last := living[living.size() - 1]
+	living[pos] = last
+	_living_pos[last] = pos
+	living.resize(living.size() - 1)
 	free_slots.append(i)
 	population -= 1
 	deaths += 1
@@ -362,30 +399,30 @@ func creature_at(px: int, py: int, radius: int = 2) -> int:
 	return best
 
 
+## Most pressing need. Ties go to Eat, then Mate, then Fight.
 func dominant_need(i: int) -> int:
 	var f := needs[i * 3]
 	var m := needs[i * 3 + 1]
 	var e := needs[i * 3 + 2]
-	if f >= m and f >= e:
-		return Need.FIGHT
-	if m >= e:
+	if e >= m and e >= f:
+		return Need.EAT
+	if m >= f:
 		return Need.MATE
-	return Need.EAT
+	return Need.FIGHT
 
 
 func count_mode(m: int) -> int:
 	var n := 0
-	for i in CAPACITY:
-		if alive[i] and mode[i] == m:
+	for i in living:
+		if mode[i] == m:
 			n += 1
 	return n
 
 
 func count_types() -> PackedInt32Array:
 	var out := PackedInt32Array([0, 0, 0, 0, 0])
-	for i in CAPACITY:
-		if alive[i]:
-			out[ctype[i]] += 1
+	for i in living:
+		out[ctype[i]] += 1
 	return out
 
 
@@ -416,9 +453,13 @@ func step() -> void:
 		if _resupply_acc >= resupply_interval[food_flow]:
 			_resupply_acc = 0.0
 			resupply_food()
-	var start := rng.randi_range(0, CAPACITY - 1)
-	for k in CAPACITY:
-		var i := (start + k) % CAPACITY
+	var order := living.duplicate()  # births/deaths during the step change `living`
+	var n := order.size()
+	if n == 0:
+		return
+	var start := rng.randi_range(0, n - 1)
+	for k in n:
+		var i := order[(start + k) % n]
 		if not alive[i]:
 			continue
 		# The Artificial Life engine's cycle is factored by Speed.
@@ -441,9 +482,10 @@ func _act(i: int) -> void:
 			mode[i] = Mode.WANDER
 		return
 
-	# needs rise according to genetics
+	# Fight and Mate urges rise according to genetics; Eat rises as stamina
+	# is burned (see _spend).
 	var base := i * 3
-	for n in 3:
+	for n in [Need.FIGHT, Need.MATE]:
 		var g := float(gene(i, n))
 		needs[base + n] = minf(g, needs[base + n] + g * NEED_RISE)
 
@@ -454,6 +496,9 @@ func _act(i: int) -> void:
 		_continue_fight(i)
 		return
 
+	# opportunistic grazing: a hungry creature standing on food takes a bite
+	if needs[base + Need.EAT] >= NEED_THRESHOLD * 0.5 and _try_graze(i):
+		return
 	var dn := dominant_need(i)
 	var urgency := needs[base + dn]
 	if urgency < NEED_THRESHOLD:
@@ -480,8 +525,12 @@ func _act(i: int) -> void:
 		_wander(i, Mode.SEARCH)
 
 
+## Burns stamina. Spending about one food pixel's worth of energy
+## (NUTRITION_REF) takes the Eat need from empty to its genetic maximum.
 func _spend(i: int, amount: float) -> bool:
 	stamina[i] -= amount
+	var eg := float(gene(i, Genome.G.EAT))
+	needs[i * 3 + Need.EAT] = minf(eg, needs[i * 3 + Need.EAT] + amount * eg / NUTRITION_REF)
 	if stamina[i] <= 0.0:
 		mode[i] = Mode.DYING
 		timer[i] = DYING_ACTIONS
@@ -493,6 +542,18 @@ func _spend(i: int, amount: float) -> bool:
 		partner[i] = -1
 		return false
 	return true
+
+
+## Stamina burned by one action. Bigger, faster bodies burn more, and a
+## creature whose Eat need is maxed out is starving and burns much more.
+func _cost(i: int, moving: bool) -> float:
+	var c := BASE_COST + (gene(i, Genome.G.SPEED) + gene(i, Genome.G.STRENGTH)) * BODY_COST
+	if moving:
+		c += MOVE_COST
+	var eat_max := gene(i, Genome.G.EAT)
+	if eat_max > 0 and needs[i * 3 + Need.EAT] >= eat_max - 0.5:
+		c += STARVE_COST
+	return c
 
 
 func _wander(i: int, as_mode: int = Mode.WANDER) -> void:
@@ -553,15 +614,15 @@ func _try_graze(i: int) -> bool:
 			if food[k]:
 				food[k] = 0
 				mode[i] = Mode.EAT
-				needs[i * 3 + Need.EAT] = maxf(0.0, needs[i * 3 + Need.EAT] - nutrition * 0.25)
+				needs[i * 3 + Need.EAT] = maxf(0.0, needs[i * 3 + Need.EAT] - nutrition * gene(i, Genome.G.EAT) / NUTRITION_REF)
 				stamina[i] = minf(max_stamina(i), stamina[i] + nutrition)
-				_spend(i, IDLE_COST)
+				_spend(i, _cost(i, false))
 				return true
 	return false
 
 
 func _move(i: int, d: int, seeking: bool) -> void:
-	if not _spend(i, MOVE_COST):
+	if not _spend(i, _cost(i, true)):
 		return
 	var nx: int = cx[i] + DX[d]
 	var ny: int = cy[i] + DY[d]
@@ -657,26 +718,32 @@ func _continue_mating(i: int) -> void:
 		mode[i] = Mode.WANDER
 		partner[i] = -1
 		return
-	if not _spend(i, IDLE_COST):
+	if not _spend(i, _cost(i, false)):
 		return
 	timer[i] -= 1
 	if timer[i] > 0:
 		return
-	# whichever partner finishes first completes the mating for both
-	_give_birth(i, p)
+	# whichever partner finishes first completes the mating for both.
+	# The newborn's stamina is paid for by its parents (no free energy).
+	var paid := 0.0
+	for k in [i, p]:
+		var share := minf(stamina[k], max_stamina(k) * MATE_COST)
+		paid += share
+	for k in [i, p]:
+		_spend(k, minf(stamina[k], max_stamina(k) * MATE_COST))
+	_give_birth(i, p, paid)
 	for k in [i, p]:
 		if not alive[k]:
 			continue
 		var sat: float = body_vars[ctype[k]].mate_satisfaction
 		needs[k * 3 + Need.MATE] *= (1.0 - sat)
-		_spend(k, max_stamina(k) * MATE_COST)
 		if mode[k] == Mode.MATE:
 			mode[k] = Mode.WANDER
 		partner[k] = -1
 		cdir[k] = rng.randi_range(0, 7)
 
 
-func _give_birth(a: int, b: int) -> void:
+func _give_birth(a: int, b: int, energy: float) -> void:
 	if sterile[a] or sterile[b]:
 		return
 	var g := PackedInt32Array()
@@ -709,6 +776,8 @@ func _give_birth(a: int, b: int) -> void:
 	if vir & Genome.VIRUS_X:
 		virus[a] |= Genome.VIRUS_X
 		virus[b] |= Genome.VIRUS_X
+	if energy < Genome.classify_stamina_pool(g, STAMINA_SCALE) * MIN_BIRTH_STAMINA:
+		return  # parents too exhausted to produce a viable offspring
 	# find room near the parents, on the same side of any wall
 	for r in range(2, 6):
 		for _try in 8:
@@ -716,7 +785,7 @@ func _give_birth(a: int, b: int) -> void:
 			var y := cy[a] + rng.randi_range(-r, r)
 			if not _clear_path(cx[a], cy[a], x, y):
 				continue
-			if spawn(x, y, g, vir, is_sterile) >= 0:
+			if spawn(x, y, g, vir, is_sterile, energy) >= 0:
 				births += 1
 				return
 
@@ -743,7 +812,7 @@ func _continue_fight(i: int) -> void:
 		mode[i] = Mode.WANDER
 		partner[i] = -1
 		return
-	if not _spend(i, IDLE_COST):
+	if not _spend(i, _cost(i, false)):
 		return
 	# faster creatures land more blows
 	var si := float(gene(i, Genome.G.SPEED)) + 8.0
@@ -789,8 +858,7 @@ func build_demo(designs: Array, per_pen: int = 30) -> void:
 				if c > 0 and c < GRID_X:
 					vwall[r * GRID_X + c] = 1
 	_rebuild_solid()
-	food_flow = 3
-	resupply_food()
+	set_food_flow(3)
 	for k in mini(designs.size(), pens.size()):
 		var pr: Rect2i = pens[k]
 		var center := Vector2i(int((pr.position.x + pr.size.x / 2.0) * CELL_W), int((pr.position.y + pr.size.y / 2.0) * CELL_H))

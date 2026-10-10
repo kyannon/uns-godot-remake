@@ -21,6 +21,8 @@ func _init() -> void:
 	test_walls_contain()
 	test_births_respect_walls()
 	test_food_resupply()
+	test_food_flow_density()
+	test_starvation()
 	test_decoder()
 	print("%d passed, %d failed" % [passes, failures])
 	quit(1 if failures > 0 else 0)
@@ -108,6 +110,37 @@ func test_food_resupply() -> void:
 	for f in sim.food:
 		n += f
 	check(n == (LabSim.CELL_W - 1) * (LabSim.CELL_H - 1), "flow 3 refills a cell within 60 s (got %d)" % n)
+
+
+func test_food_flow_density() -> void:
+	var sim := LabSim.new()
+	sim.set_food_cell(55, true)
+	sim.set_food_flow(3)
+	var full := 0
+	for f in sim.food: full += f
+	sim.set_food_flow(1)
+	var sparse := 0
+	for f in sim.food: sparse += f
+	sim.set_food_flow(0)
+	var none := 0
+	for f in sim.food: none += f
+	check(full > 0 and sparse > 0 and sparse < full / 2, "flow 1 is sparser than flow 3 (%d vs %d)" % [sparse, full])
+	check(none == 0, "flow 0 removes all food from the pen")
+
+
+func test_starvation() -> void:
+	# 9 Slugs, no food: must die out quickly and births must not create energy
+	var sim := LabSim.new()
+	sim.rng.seed = 5
+	var g := Genome.from_sni([1, 3, 3, 2, 2, 10, 2], 1)
+	for k in 9:
+		sim.spawn(80 + (k % 3) * 3, 40 + (k / 3) * 3, g)
+	var t := 0
+	while sim.population > 0 and t < 3000:
+		sim.step()
+		t += 1
+	check(sim.population == 0, "a foodless pen dies out (took %d game s)" % t)
+	check(t < 600, "starvation takes under 10 game minutes (took %d s)" % t)
 
 
 func test_decoder() -> void:

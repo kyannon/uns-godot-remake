@@ -36,7 +36,7 @@ the same engine on a 260x100 map with terrain).
 |---|---|
 | Pen, Zoom 1 = 170x90 view; 3825 creature cap | 170x90 pixel world, creatures 2x2 (170·90/4 = 3825) |
 | Walls on a grid of anchor points | 10x10 grid of 17x9 cells; walls on grid lines; Shift = vertical; right-click crushes |
-| Food cells, flow 0-3, refill every 240/120/60 s | `food_cells` + per-pixel food; flow interval from LAB.DEF |
+| Food cells, flow 0-3, refill every 240/120/60 s | `food_cells` + per-pixel food. Flow sets density (0 none, 1 sparse, 2 half, 3 solid) and refill interval |
 | SNI: 16 ml per bar, 256 ml limit | Every attribute starts at 1 free bar; 16 extra clicks max. Matches the manual's tutorial Slug and "standard" Theroids exactly |
 | Body type: speed vs strength+stamina | `Genome.classify` |
 | Beast: Fight ≥48, Mate & Eat >80, Spd/Str/Sta >200 | `Genome.classify` |
@@ -45,10 +45,10 @@ the same engine on a 260x100 map with terrain).
 | Modes: Wander, Eat, Search, Seek, Fight, Mate, Escape, Dying, Just Born | `LabSim.Mode` |
 | Dominant Encounter Trait (Need/Speed) decides the encounter | `_encounter` |
 | Fight Same / Mate Others / Fight Until / Satisfaction / Damage Given & Taken / Corpse Size | `BodyVars` |
-| Nutrition: subtracted from Eat, added to Stamina | `_try_graze` |
+| Nutrition: subtracted from Eat, added to Stamina | `_try_graze`. Hunger rises as stamina is burned (one nutrition-worth of energy = full Eat need); a creature with Eat maxed out is starving and burns extra stamina. Newborns' stamina is paid by the parents, so a foodless pen dies out |
 | Mutation chance & amount per dial level; mutable attributes | `_give_birth` |
 | Viruses X (stamina, sexually transmitted), Y (vision), Z (sterility) | phenotype modifiers; inherited from either parent |
-| NPR OFF/25%/FULL/MAX | game-seconds per real second: 0/2/8/24 |
+| NPR OFF/25%/FULL/MAX | game-seconds per real second: 0/4/16/64; set by dragging the knob beside the vial (or clicking the labels) |
 
 Numbers the manual doesn't give are tagged `TUNE` in `LabSim.gd`. The current
 values give a stable population of ~1000 in the three demo pens with food flow

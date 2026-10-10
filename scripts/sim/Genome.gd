@@ -44,3 +44,8 @@ static func classify(g: PackedInt32Array) -> int:
 	if g[G.STRENGTH] >= g[G.SPEED] + g[G.STAMINA]:
 		return HULK
 	return SLUG
+
+
+## Stamina pool a creature with genes `g` would have (before viruses).
+static func classify_stamina_pool(g: PackedInt32Array, scale: float) -> float:
+	return g[G.STAMINA] * scale

@@ -24,6 +24,11 @@ var selected := -1
 var zoom_center := Vector2(85, 45)
 var debug_rects := false
 
+# Black quadrant (0 TL, 1 TR, 2 BL, 3 BR) for each heading E,SE,S,SW,W,NW,N,NE.
+# Diagonals point at the opposite corner; cardinal headings use the diagonal
+# one step clockwise.
+const _BACK_QUADRANT := [0, 0, 1, 1, 3, 3, 2, 2]
+
 var _pen_img: Image
 var _pen_tex: ImageTexture
 var _pen_bytes := PackedByteArray()
@@ -31,8 +36,12 @@ var _lut := PackedByteArray()
 var _drag := {}            # active pen drag state
 var _toast := ""
 var _toast_t := 0.0
-var _menu: PopupMenu
 var _hover := Vector2.ZERO
+var menu_open := false
+var _menu_drop := -1
+var skill := 0                 # Battle menu: 0 Beginner, 1 Normal, 2 Expert
+var _npr_y := 104.0            # animated vial/knob level (logical y)
+var _npr_drag := false
 
 
 func _ready() -> void:
@@ -48,7 +57,6 @@ func _ready() -> void:
 	_pen_img = Image.create_from_data(LabSim.W, LabSim.H, false, Image.FORMAT_RGBA8, _pen_bytes)
 	_pen_tex = ImageTexture.create_from_image(_pen_img)
 	new_experiment()
-	_build_menu()
 
 
 func new_experiment() -> void:
@@ -59,40 +67,37 @@ func new_experiment() -> void:
 	toast("NEW EXPERIMENT")
 
 
-func _build_menu() -> void:
-	_menu = PopupMenu.new()
-	_menu.add_item("New experiment", 0)
-	_menu.add_item("Load textbook pen layout (demo)", 1)
-	_menu.add_separator()
-	_menu.add_check_item("Integer scaling (F10)", 2)
-	_menu.add_check_item("Fullscreen (F11)", 3)
-	_menu.add_separator()
-	_menu.add_item("Change game data folder...", 4)
-	_menu.add_item("Quit", 5)
-	_menu.id_pressed.connect(_on_menu)
-	add_child(_menu)
-
-
-func _on_menu(id: int) -> void:
-	match id:
+func _menu_action(drop: int, item: int) -> void:
+	menu_open = false
+	_menu_drop = -1
+	match drop:
 		0:
-			new_experiment()
+			match item:
+				0:
+					new_experiment()
+				4:
+					get_tree().quit()
+				_:
+					toast("SAVE/LOAD: COMING IN MILESTONE 2")
 		1:
-			_demo_layout()
+			toast("OPTION NOT AVAILABLE YET")
 		2:
-			Settings.toggle_integer_scaling()
+			toast("VARIABLES: COMING IN MILESTONE 2")
 		3:
-			Settings.toggle_fullscreen()
-		4:
-			request_setup.emit()
-		5:
-			get_tree().quit()
-
-
-func _open_menu() -> void:
-	_menu.set_item_checked(_menu.get_item_index(2), Settings.integer_scaling)
-	_menu.set_item_checked(_menu.get_item_index(3), Settings.fullscreen)
-	_menu.popup(Rect2i(get_viewport().get_mouse_position(), Vector2i.ZERO))
+			if item < 3:
+				skill = item
+			else:
+				toast("BATTLE: COMING IN MILESTONE 3")
+		4:  # remake options
+			match item:
+				0:
+					Settings.toggle_integer_scaling()
+				1:
+					Settings.toggle_fullscreen()
+				2:
+					_demo_layout()
+				3:
+					request_setup.emit()
 
 
 ## Three pens like the tutorial, filled with food. Handy for testing.
@@ -100,10 +105,8 @@ func _demo_layout() -> void:
 	new_experiment()
 	sim.build_demo([[1, 3, 3, 2, 2, 10, 2], [1, 3, 3, 1, 8, 6, 1], [1, 3, 3, 8, 1, 6, 1]])
 	sim.npr = 2
-	for i in LabSim.CAPACITY:
-		if sim.alive[i]:
-			selected = i
-			break
+	if sim.living.size() > 0:
+		selected = sim.living[0]
 	toast("DEMO: SLUGS / HULKS / ZIPS")
 
 
@@ -113,7 +116,12 @@ func toast(msg: String) -> void:
 
 
 func _process(delta: float) -> void:
-	sim.update(delta)
+	if not menu_open:
+		sim.update(delta)
+	# vial and knob glide toward the selected NPR level
+	if not _npr_drag:
+		var target: float = L.NPR_LEVEL_Y[sim.npr]
+		_npr_y = move_toward(_npr_y, target, delta * 80.0)
 	if selected >= 0 and not sim.alive[selected]:
 		selected = -1
 		if zoom == 3:
@@ -165,9 +173,7 @@ func _render_pen() -> void:
 	elif highlight == "mate":
 		hl_mode = LabSim.Mode.MATE
 	var scanning := module == "VIEW" and scan >= 0
-	for i in LabSim.CAPACITY:
-		if not sim.alive[i]:
-			continue
+	for i in sim.living:
 		var col: int = L.TYPE_COLOR[sim.ctype[i]]
 		if hl_mode >= 0 and sim.mode[i] != hl_mode:
 			col = 20  # ghosted
@@ -178,12 +184,15 @@ func _render_pen() -> void:
 		var s := col * 4
 		var x0 := sim.cx[i]
 		var y0 := sim.cy[i]
-		for oy in 2:
-			for ox in 2:
-				var o2 := ((y0 + oy) * W + x0 + ox) * 4
-				b[o2] = lut[s]
-				b[o2 + 1] = lut[s + 1]
-				b[o2 + 2] = lut[s + 2]
+		# Each creature is a 2x2 dot with one black quadrant at its back, so the
+		# three coloured pixels form an arrow pointing the way it is facing.
+		var back: int = _BACK_QUADRANT[sim.cdir[i]]
+		for q in 4:
+			var o2 := ((y0 + q / 2) * W + x0 + q % 2) * 4
+			var src := 0 if q == back else s
+			b[o2] = lut[src]
+			b[o2 + 1] = lut[src + 1]
+			b[o2 + 2] = lut[src + 2]
 	_pen_img.set_data(W, H, false, Image.FORMAT_RGBA8, b)
 	_pen_tex.update(_pen_img)
 
@@ -244,14 +253,17 @@ func _draw() -> void:
 	_draw_npr()
 	_draw_zoom_panel()
 	_draw_clock()
-	_draw_pen()
+	if menu_open:
+		_draw_menu()
+	else:
+		_draw_pen()
 	match module:
 		"HABITAT":
 			_draw_habitat()
 		"VIEW":
 			_draw_view()
 	_draw_cursor_overlay()
-	if _toast_t > 0.0:
+	if _toast_t > 0.0 and not menu_open:
 		var w := _toast.length() * 4 + 4
 		var p := Vector2(L.PEN.position.x + (L.PEN.size.x - w) / 2.0, L.PEN.end.y - 9)
 		draw_rect(Rect2(p, Vector2(w, 8)), Color(0, 0, 0, 0.75))
@@ -277,12 +289,11 @@ func _draw_fight_mate() -> void:
 
 
 func _draw_npr() -> void:
-	var tube := L.NPR_TUBE
-	var top_y: float = L.NPR_LEVEL_Y[sim.npr]
-	if sim.npr > 0:
-		draw_rect(Rect2(tube.position.x, top_y, tube.size.x, tube.end.y - top_y), Color(_c(55), 0.65))
-	draw_rect(Rect2(tube.position.x, top_y - 1, tube.size.x, 2), _c(34))
-	draw_circle(Vector2(L.NPR_SCALE_X, top_y), 2.0, _c(35))
+	var bg := Assets.texture(L.AL1, L.BACKGROUND)
+	# hide the marker baked into the console art at OFF, then draw it at the live level
+	draw_texture_rect_region(bg, L.NPR_BAKED_MARKER, L.NPR_GLASS_SRC)
+	spr(L.AL1, L.NPR_METER, Vector2(L.NPR_METER_X, round(_npr_y) - 1))
+	spr(L.AL1, L.NPR_KNOB, Vector2(L.NPR_KNOB_X, round(_npr_y) - 3))
 
 
 func _draw_zoom_panel() -> void:
@@ -297,8 +308,8 @@ func _draw_clock() -> void:
 	text(L.CLOCK_TIME, "%02d:%02d" % [t.x, t.y], _c(L.COL_GREEN))
 	var d := sim.day() - 1
 	text(L.CLOCK_DATE, "%d/%02d" % [d / 30 + 1, d % 30 + 1], _c(L.COL_GREEN))
-	var a := (t.z / 5) * TAU / 12.0 - PI / 2.0
-	draw_rect(Rect2(L.CLOCK_CENTER + Vector2(cos(a), sin(a)) * L.CLOCK_RADIUS - Vector2(1, 1), Vector2(2, 2)), _c(L.COL_GREEN))
+	for p in L.CLOCK_LIGHTS[t.z / 5]:
+		draw_rect(Rect2(p, Vector2.ONE), _c(L.COL_CLOCK_LIT))
 
 
 func _draw_pen() -> void:
@@ -383,9 +394,10 @@ func _draw_habitat() -> void:
 	var design := _genes_from(sni_bars)
 	var btype := Genome.classify(design)
 	var body_col := _c(L.TYPE_COLOR[btype])
-	# serum figures (only meaningful in Top Secret games, shown as in the original)
+	# millilitres of SNI fluid assigned to each attribute
 	for row in 7:
-		text(Vector2(L.SNI_NUM_X, L.SNI_ROWS_Y[row] - 1), "900", _c(L.COL_ORANGE))
+		var ml: int = sni_bars[row] * Genome.SNI_ML_PER_BAR
+		text(Vector2(L.SNI_NUM_X, L.SNI_ROWS_Y[row] - 1), "%3d" % ml, _c(L.COL_ORANGE))
 		for b in 16:
 			var on: bool = b < sni_bars[row]
 			draw_rect(Rect2(L.SNI_BAR_X + b * 2, L.SNI_ROWS_Y[row], 1, 5), body_col if on else _c(L.COL_BAR_OFF))
@@ -427,9 +439,7 @@ func _scan_match(i: int) -> bool:
 
 func _update_scan_max() -> void:
 	_scan_max.fill(0)
-	for i in LabSim.CAPACITY:
-		if not sim.alive[i]:
-			continue
+	for i in sim.living:
 		for k in 8:
 			_scan_max[k] = maxi(_scan_max[k], _scan_value(i, k))
 		if sim.virus[i]:
@@ -505,6 +515,62 @@ func _virus_str(i: int) -> String:
 	return ("X" if v & 1 else "") + ("Y" if v & 2 else "") + ("Z" if v & 4 else "")
 
 
+func _menu_drop_rect(d: int) -> Rect2:
+	var drop: Dictionary = L.MENU_DROPS[d]
+	var size := Vector2(Assets.size_of(L.AL1, drop.sprite))
+	return Rect2(L.PEN.position + Vector2(drop.x, 8), size)
+
+
+func _menu_remake_rect() -> Rect2:
+	var r := _menu_drop_rect(1)
+	return Rect2(r.position + Vector2(r.size.x + 2, 0), Vector2(70, 3 + L.MENU_REMAKE_ITEMS.size() * L.MENU_ITEM_H))
+
+
+func _menu_item_at(p: Vector2) -> Vector2i:
+	if _menu_drop >= 0:
+		var r := _menu_drop_rect(_menu_drop)
+		if r.has_point(p):
+			var n: int = L.MENU_DROPS[_menu_drop].items.size()
+			return Vector2i(_menu_drop, clampi(int((p.y - r.position.y - 1) / L.MENU_ITEM_H), 0, n - 1))
+		if _menu_drop == 1:
+			var rr := _menu_remake_rect()
+			if rr.has_point(p):
+				return Vector2i(4, clampi(int((p.y - rr.position.y - 2) / L.MENU_ITEM_H), 0, L.MENU_REMAKE_ITEMS.size() - 1))
+	return Vector2i(-1, -1)
+
+
+func _draw_menu() -> void:
+	draw_rect(L.PEN, Color.BLACK)
+	spr(L.AL1, L.MENU_BAR, L.PEN.position)
+	if _menu_drop < 0:
+		return
+	var r := _menu_drop_rect(_menu_drop)
+	spr(L.AL1, L.MENU_DROPS[_menu_drop].sprite, r.position)
+	if _menu_drop == 3:  # current skill level gets a diamond
+		var y := r.position.y + 1 + skill * L.MENU_ITEM_H + 3
+		_diamond(Vector2(r.end.x - 5, y))
+	if _menu_drop == 1:
+		var rr := _menu_remake_rect()
+		draw_rect(rr, _c(L.COL_WHITE))
+		draw_rect(rr, _c(L.COL_MENU_TEXT), false, 1.0)
+		for k in L.MENU_REMAKE_ITEMS.size():
+			var iy := rr.position.y + 2 + k * L.MENU_ITEM_H
+			text(Vector2(rr.position.x + 3, iy), L.MENU_REMAKE_ITEMS[k], _c(L.COL_MENU_TEXT))
+			if (k == 0 and Settings.integer_scaling) or (k == 1 and Settings.fullscreen):
+				_diamond(Vector2(rr.end.x - 5, iy + 3))
+	var hit := _menu_item_at(_hover)
+	if hit.x >= 0:
+		var box := _menu_drop_rect(hit.x) if hit.x < 4 else _menu_remake_rect()
+		var top := box.position.y + (1 if hit.x < 4 else 2) + hit.y * L.MENU_ITEM_H
+		draw_rect(Rect2(box.position.x + 1, top - 1, box.size.x - 2, L.MENU_ITEM_H), Color(_c(L.COL_MENU_TEXT), 0.35))
+
+
+func _diamond(c: Vector2) -> void:
+	var col := _c(L.COL_MENU_TEXT)
+	draw_rect(Rect2(c + Vector2(0, -1), Vector2(1, 3)), col)
+	draw_rect(Rect2(c + Vector2(-1, 0), Vector2(3, 1)), col)
+
+
 func _draw_cursor_overlay() -> void:
 	if inject_left > 0 and L.PEN.has_point(_hover):
 		var r := Rect2(_hover + Vector2(4, 4), Vector2(9, 8))
@@ -518,7 +584,7 @@ func _draw_debug() -> void:
 		L.INJECT_BTN.rect, L.WALLS_BTN.rect, L.FOOD_BTN.rect, L.MUTATION_KNOB]
 	for m in L.MODULES:
 		rects.append(m.rect)
-	rects += L.NPR_LABELS + L.ZOOM_BUTTONS + L.MUTATION_LABELS
+	rects += L.NPR_LABELS + L.ZOOM_BUTTONS + L.MUTATION_LABELS + [L.NPR_TRACK]
 	for row in 7:
 		rects.append(Rect2(L.SNI_LEFT_X, L.SNI_ARROW_Y[row], 8, 8))
 		rects.append(Rect2(L.SNI_RIGHT_X, L.SNI_ARROW_Y[row], 9, 8))
@@ -603,11 +669,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_SPACE:
 				sim.npr = 0 if sim.npr > 0 else 2
 			KEY_ESCAPE:
-				if inject_left > 0 or tool != "":
+				if menu_open:
+					menu_open = false
+				elif inject_left > 0 or tool != "":
 					inject_left = 0
 					tool = ""
 				else:
-					_open_menu()
+					menu_open = true
+					_menu_drop = -1
 		return
 	if event is InputEventMouseButton:
 		var p := get_local_mouse_position()
@@ -615,14 +684,47 @@ func _unhandled_input(event: InputEvent) -> void:
 			_on_press(p, event.button_index)
 		else:
 			_drag = {}
-	elif event is InputEventMouseMotion and not _drag.is_empty():
-		_on_drag(get_local_mouse_position())
+			if _npr_drag:
+				_npr_drag = false
+				_set_npr_from_y(p.y)
+	elif event is InputEventMouseMotion:
+		var mp := get_local_mouse_position()
+		if _npr_drag:
+			_npr_y = clampf(mp.y, L.NPR_LEVEL_Y[3], L.NPR_LEVEL_Y[0])
+			_set_npr_from_y(mp.y)
+		elif menu_open:
+			for h in 4:
+				if Rect2(L.PEN.position + L.MENU_HEADERS[h].position, L.MENU_HEADERS[h].size).has_point(mp):
+					_menu_drop = h
+		elif not _drag.is_empty():
+			_on_drag(mp)
+
+
+func _set_npr_from_y(y: float) -> void:
+	var best := 0
+	for lvl in 4:
+		if absf(y - L.NPR_LEVEL_Y[lvl]) < absf(y - L.NPR_LEVEL_Y[best]):
+			best = lvl
+	sim.npr = best
 
 
 func _on_press(p: Vector2, button: int) -> void:
 	if button != MOUSE_BUTTON_LEFT and button != MOUSE_BUTTON_RIGHT:
 		return
 	var right := button == MOUSE_BUTTON_RIGHT
+	# disk-drive menu takes all clicks while open
+	if menu_open:
+		var hit := _menu_item_at(p)
+		if hit.x >= 0:
+			_menu_action(hit.x, hit.y)
+			return
+		for h in 4:
+			if Rect2(L.PEN.position + L.MENU_HEADERS[h].position, L.MENU_HEADERS[h].size).has_point(p):
+				_menu_drop = -1 if _menu_drop == h else h
+				return
+		menu_open = false
+		_menu_drop = -1
+		return
 	# pen
 	if L.PEN.has_point(p):
 		_on_pen_press(p, right)
@@ -647,8 +749,10 @@ func _on_press(p: Vector2, button: int) -> void:
 		if L.NPR_LABELS[lvl].has_point(p):
 			sim.npr = lvl
 			return
-	if L.NPR_TUBE.has_point(p):
-		sim.npr = (sim.npr + 1) % 4
+	if L.NPR_TRACK.has_point(p) and not right:
+		_npr_drag = true
+		_npr_y = clampf(p.y, L.NPR_LEVEL_Y[3], L.NPR_LEVEL_Y[0])
+		_set_npr_from_y(p.y)
 		return
 	for z in 3:
 		if L.ZOOM_BUTTONS[z].has_point(p):
@@ -666,7 +770,8 @@ func _on_press(p: Vector2, button: int) -> void:
 			zoom_center = local
 		return
 	if L.DISK_DRIVE.has_point(p):
-		_open_menu()
+		menu_open = true
+		_menu_drop = -1
 		return
 	if L.COMM.has_point(p):
 		toast("COMM: TOP SECRET GAMES ONLY")
@@ -718,10 +823,7 @@ func _habitat_press(p: Vector2) -> void:
 		return
 	for ff in L.FOOD_FLOW:
 		if Rect2(ff.pos, Vector2(20, 11)).has_point(p):
-			var was := sim.food_flow
-			sim.food_flow = ff.n
-			if was == 0 and ff.n > 0:
-				sim.resupply_food()
+			sim.set_food_flow(ff.n)
 			return
 
 
