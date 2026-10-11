@@ -40,8 +40,12 @@ var _hover := Vector2.ZERO
 var menu_open := false
 var _menu_drop := -1
 var skill := 0                 # Battle menu: 0 Beginner, 1 Normal, 2 Expert
-var _npr_y := 104.0            # animated vial/knob level (logical y)
+var _npr_y := 104.0            # animated fluid level (logical y)
+var _knob_y := 104.0           # knob position (follows the mouse while dragging)
 var _npr_drag := false
+var _blink := 0.0
+var _static_t := 0.0           # Zoom 3 TV-static transition timer
+var _noise: Array[ImageTexture] = []
 
 
 func _ready() -> void:
@@ -118,10 +122,14 @@ func toast(msg: String) -> void:
 func _process(delta: float) -> void:
 	if not menu_open:
 		sim.update(delta)
-	# vial and knob glide toward the selected NPR level
+	# the fluid creeps toward the selected NPR level; the knob snaps
+	var target: float = L.NPR_LEVEL_Y[sim.npr]
+	_npr_y = move_toward(_npr_y, target, delta * L.NPR_FLUID_SPEED)
 	if not _npr_drag:
-		var target: float = L.NPR_LEVEL_Y[sim.npr]
-		_npr_y = move_toward(_npr_y, target, delta * 80.0)
+		_knob_y = target
+	_blink += delta
+	if _static_t > 0.0:
+		_static_t -= delta
 	if selected >= 0 and not sim.alive[selected]:
 		selected = -1
 		if zoom == 3:
@@ -198,7 +206,7 @@ func _render_pen() -> void:
 
 
 func _zoom2_src() -> Rect2:
-	var sz := Vector2(L.PEN.size.x / 4.0, L.PEN.size.y / 4.0)
+	var sz := L.PEN.size / L.Z2_SCALE
 	var pos := zoom_center - sz / 2.0
 	pos.x = clampf(pos.x, 0, LabSim.W - sz.x)
 	pos.y = clampf(pos.y, 0, LabSim.H - sz.y)
@@ -214,7 +222,7 @@ func _screen_to_pen(p: Vector2) -> Vector2:
 		return local
 	if zoom == 2:
 		var src := _zoom2_src()
-		return src.position + local / 4.0
+		return src.position + local / L.Z2_SCALE
 	return Vector2(-1, -1)
 
 
@@ -222,7 +230,7 @@ func _pen_to_screen(p: Vector2) -> Vector2:
 	if zoom == 1:
 		return L.PEN.position + p
 	var src := _zoom2_src()
-	return L.PEN.position + (p - src.position) * 4.0
+	return L.PEN.position + (p - src.position) * L.Z2_SCALE
 
 
 # ===========================================================================
@@ -289,11 +297,11 @@ func _draw_fight_mate() -> void:
 
 
 func _draw_npr() -> void:
-	var bg := Assets.texture(L.AL1, L.BACKGROUND)
-	# hide the marker baked into the console art at OFF, then draw it at the live level
-	draw_texture_rect_region(bg, L.NPR_BAKED_MARKER, L.NPR_GLASS_SRC)
-	spr(L.AL1, L.NPR_METER, Vector2(L.NPR_METER_X, round(_npr_y) - 1))
-	spr(L.AL1, L.NPR_KNOB, Vector2(L.NPR_KNOB_X, round(_npr_y) - 3))
+	# red fluid behind the glass; the console art already shows the OFF level
+	var top := roundf(_npr_y)
+	for col in L.NPR_FLUID_COLS:
+		draw_rect(Rect2(col.x, top, col.y, L.NPR_FLUID_BOTTOM - top + 1), _c(L.COL_NPR_FLUID))
+	spr(L.AL1, L.NPR_KNOB, Vector2(L.NPR_KNOB_X, roundf(_knob_y) - 3))
 
 
 func _draw_zoom_panel() -> void:
@@ -306,10 +314,15 @@ func _draw_zoom_panel() -> void:
 func _draw_clock() -> void:
 	var t := sim.clock_hms()
 	text(L.CLOCK_TIME, "%02d:%02d" % [t.x, t.y], _c(L.COL_GREEN))
-	var d := sim.day() - 1
-	text(L.CLOCK_DATE, "%d/%02d" % [d / 30 + 1, d % 30 + 1], _c(L.COL_GREEN))
-	for p in L.CLOCK_LIGHTS[t.z / 5]:
-		draw_rect(Rect2(p, Vector2.ONE), _c(L.COL_CLOCK_LIT))
+	var md := sim.month_day()
+	text(L.CLOCK_DATE, "%02d:%02d" % [md.x, md.y], _c(L.COL_GREEN))
+	# the ring of lights fills clockwise through each minute, 5 s per light
+	for k in t.z / 5:
+		for p in L.CLOCK_LIGHTS[k]:
+			draw_rect(Rect2(p, Vector2.ONE), _c(L.COL_CLOCK_LIT))
+	if fmod(_blink, 1.0) < 0.5:
+		draw_circle(L.CLOCK_LED, 2.6, _c(L.COL_CLOCK_LIT))
+		draw_rect(Rect2(L.CLOCK_LED + Vector2(-1.5, -1.5), Vector2.ONE), _c(36))
 
 
 func _draw_pen() -> void:
@@ -320,8 +333,8 @@ func _draw_pen() -> void:
 			_draw_grid_overlay(1.0, Vector2.ZERO)
 		2:
 			var src := _zoom2_src()
-			draw_texture_rect_region(_pen_tex, pen, src)
-			_draw_grid_overlay(4.0, src.position)
+			_draw_zoom2(src)
+			_draw_grid_overlay(L.Z2_SCALE, src.position)
 			# overview window replaces the DigiLife label
 			draw_texture_rect(_pen_tex, L.OVERVIEW, false)
 			var o := L.OVERVIEW
@@ -329,7 +342,9 @@ func _draw_pen() -> void:
 			draw_rect(Rect2(o.position + src.position * s, src.size * s), Color.WHITE, false, 1.0)
 		3:
 			draw_rect(pen, Color.BLACK)
-			if selected >= 0:
+			if _static_t > 0.0:
+				draw_texture_rect(_noise_tex(), pen, false)
+			elif selected >= 0:
 				var t := sim.ctype[selected]
 				var tex := Assets.texture(L.BACK, L.TYPE_PORTRAIT[t])
 				if tex:
@@ -339,10 +354,66 @@ func _draw_pen() -> void:
 				text(pen.position + Vector2(2, 1), label, _c(L.COL_GREEN))
 	if zoom < 3 and selected >= 0:
 		var p := _pen_to_screen(Vector2(sim.cx[selected], sim.cy[selected]))
-		var sz := 2.0 if zoom == 1 else 8.0
+		var sz := 2.0 if zoom == 1 else 2.0 * L.Z2_SCALE
 		_bracket(Rect2(p - Vector2(2, 2), Vector2(sz + 4, sz + 4)))
 	elif zoom < 3 and sim.population == 0:
 		_bracket(Rect2(L.PEN.get_center() - Vector2(3, 3), Vector2(6, 6)))
+
+
+## Zoom 2: each pen pixel drawn as a 5x5 block, styled like the original
+## (grey floor, dotted food, raised wall bars). Creature sprites are TODO.
+func _draw_zoom2(src: Rect2) -> void:
+	var pen := L.PEN
+	var s := L.Z2_SCALE
+	draw_rect(pen, _c(L.COL_Z2_FLOOR))
+	var x0 := int(floor(src.position.x))
+	var y0 := int(floor(src.position.y))
+	var x1 := mini(LabSim.W, int(ceil(src.end.x)) + 1)
+	var y1 := mini(LabSim.H, int(ceil(src.end.y)) + 1)
+	var food_c := _c(L.COL_Z2_FOOD)
+	for wy in range(y0, y1):
+		for wx in range(x0, x1):
+			var i := wy * LabSim.W + wx
+			var p := pen.position + (Vector2(wx, wy) - src.position) * s
+			var cell := Rect2(p, Vector2(s, s)).intersection(pen)
+			if cell.size.x <= 0 or cell.size.y <= 0:
+				continue
+			if sim.solid[i]:
+				var edge := wx == 0 or wy == 0 or wx == LabSim.W - 1 or wy == LabSim.H - 1
+				if not edge:
+					draw_rect(cell, _c(L.COL_Z2_WALL))
+					var horiz := wy % LabSim.CELL_H == 0
+					var hi := Rect2(p + (Vector2(0, 1) if horiz else Vector2(1, 0)), Vector2(s, 1) if horiz else Vector2(1, s))
+					var lo := Rect2(p + (Vector2(0, s - 1) if horiz else Vector2(s - 1, 0)), Vector2(s, 1) if horiz else Vector2(1, s))
+					draw_rect(hi.intersection(pen), _c(L.COL_Z2_WALL_HI))
+					draw_rect(lo.intersection(pen), _c(L.COL_Z2_WALL_LO))
+			elif sim.food[i]:
+				draw_rect(Rect2(p + Vector2(2, 1), Vector2(1, 3)).intersection(pen), food_c)
+	for k in sim.living:
+		var cx := sim.cx[k]
+		var cy := sim.cy[k]
+		if cx + 2 < x0 or cy + 2 < y0 or cx > x1 or cy > y1:
+			continue
+		var col := _c(L.TYPE_COLOR[sim.ctype[k]])
+		var back: int = _BACK_QUADRANT[sim.cdir[k]]
+		for q in 4:
+			if q == back:
+				continue
+			var p2 := pen.position + (Vector2(cx + q % 2, cy + q / 2) - src.position) * s
+			draw_rect(Rect2(p2, Vector2(s, s)).intersection(pen), col)
+
+
+func _noise_tex() -> ImageTexture:
+	if _noise.is_empty():
+		var rng := RandomNumberGenerator.new()
+		for n in 4:
+			var img := Image.create(170, 90, false, Image.FORMAT_RGB8)
+			for y in 90:
+				for x in 170:
+					var v := rng.randf_range(0.15, 0.95)
+					img.set_pixel(x, y, Color(v, v, v))
+			_noise.append(ImageTexture.create_from_image(img))
+	return _noise[int(_blink * 20.0) % _noise.size()]
 
 
 func _draw_grid_overlay(scale: float, origin: Vector2) -> void:
@@ -394,10 +465,9 @@ func _draw_habitat() -> void:
 	var design := _genes_from(sni_bars)
 	var btype := Genome.classify(design)
 	var body_col := _c(L.TYPE_COLOR[btype])
-	# millilitres of SNI fluid assigned to each attribute
 	for row in 7:
-		var ml: int = sni_bars[row] * Genome.SNI_ML_PER_BAR
-		text(Vector2(L.SNI_NUM_X, L.SNI_ROWS_Y[row] - 1), "%3d" % ml, _c(L.COL_ORANGE))
+		# serum supply: fixed at 900 in Independent Research (Top Secret games use it up)
+		text(Vector2(L.SNI_NUM_X, L.SNI_ROWS_Y[row] - 1), "900", body_col)
 		for b in 16:
 			var on: bool = b < sni_bars[row]
 			draw_rect(Rect2(L.SNI_BAR_X + b * 2, L.SNI_ROWS_Y[row], 1, 5), body_col if on else _c(L.COL_BAR_OFF))
@@ -411,7 +481,7 @@ func _draw_habitat() -> void:
 		var h := 2.0 + i * 2.0
 		var lit := i < used
 		draw_rect(Rect2(g.position.x + i * 2, g.end.y - h, 1, h), body_col if lit else _c(L.COL_BAR_OFF))
-	text(L.SNI_GRAPH_NUM, str(used * Genome.SNI_ML_PER_BAR), _c(L.COL_TEXT))
+	text(L.SNI_GRAPH_NUM, "%03d" % (used * Genome.SNI_ML_PER_BAR), body_col)
 	# count buttons + inject
 	for cb in L.COUNT_BUTTONS:
 		spr(L.AL3, cb.sprite + (1 if count_sel == cb.n else 0), cb.pos)
@@ -540,7 +610,12 @@ func _menu_item_at(p: Vector2) -> Vector2i:
 
 
 func _draw_menu() -> void:
-	draw_rect(L.PEN, Color.BLACK)
+	var a := _c(L.COL_MENU_BG[0])
+	var b := _c(L.COL_MENU_BG[1])
+	draw_rect(L.PEN, a)
+	for y in int(L.PEN.size.y):
+		for x in range(y % 2, int(L.PEN.size.x), 2):
+			draw_rect(Rect2(L.PEN.position + Vector2(x, y), Vector2.ONE), b)
 	spr(L.AL1, L.MENU_BAR, L.PEN.position)
 	if _menu_drop < 0:
 		return
@@ -666,6 +741,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_3:
 				if selected >= 0:
 					zoom = 3
+					_static_t = 0.6
 			KEY_SPACE:
 				sim.npr = 0 if sim.npr > 0 else 2
 			KEY_ESCAPE:
@@ -690,7 +766,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var mp := get_local_mouse_position()
 		if _npr_drag:
-			_npr_y = clampf(mp.y, L.NPR_LEVEL_Y[3], L.NPR_LEVEL_Y[0])
+			_knob_y = clampf(mp.y, L.NPR_LEVEL_Y[3], L.NPR_LEVEL_Y[0])
 			_set_npr_from_y(mp.y)
 		elif menu_open:
 			for h in 4:
@@ -751,7 +827,7 @@ func _on_press(p: Vector2, button: int) -> void:
 			return
 	if L.NPR_TRACK.has_point(p) and not right:
 		_npr_drag = true
-		_npr_y = clampf(p.y, L.NPR_LEVEL_Y[3], L.NPR_LEVEL_Y[0])
+		_knob_y = clampf(p.y, L.NPR_LEVEL_Y[3], L.NPR_LEVEL_Y[0])
 		_set_npr_from_y(p.y)
 		return
 	for z in 3:
@@ -759,6 +835,8 @@ func _on_press(p: Vector2, button: int) -> void:
 			if z == 2 and selected < 0:
 				toast("SELECT A THEROID FIRST")
 			else:
+				if z == 2 and zoom != 3:
+					_static_t = 0.6
 				zoom = z + 1
 			return
 	if zoom == 2 and L.OVERVIEW.has_point(p):

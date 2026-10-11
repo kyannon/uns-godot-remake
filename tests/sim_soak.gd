@@ -5,6 +5,7 @@ extends SceneTree
 
 func run(level: int, minutes: int) -> void:
 	var sim := LabSim.new()
+	sim.npr = 2
 	sim.rng.seed = 12345
 	sim.build_demo([[1, 3, 3, 2, 2, 10, 2], [1, 3, 3, 1, 8, 6, 1], [1, 3, 3, 8, 1, 6, 1]])
 	sim.mutation_level = level

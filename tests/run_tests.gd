@@ -61,6 +61,7 @@ func _box(sim: LabSim, c0: int, r0: int, c1: int, r1: int) -> void:
 
 func test_walls_contain() -> void:
 	var sim := LabSim.new()
+	sim.npr = 2
 	sim.rng.seed = 7
 	_box(sim, 4, 4, 6, 6)
 	var zip := Genome.from_sni([1, 1, 1, 12, 1, 4, 16], 7)
@@ -78,6 +79,7 @@ func test_walls_contain() -> void:
 
 func test_births_respect_walls() -> void:
 	var sim := LabSim.new()
+	sim.npr = 2
 	sim.rng.seed = 99
 	_box(sim, 2, 2, 3, 3)  # one-cell "veal-calf" pen
 	sim.food_cells[2 * 10 + 2] = 1
@@ -98,6 +100,7 @@ func test_births_respect_walls() -> void:
 
 func test_food_resupply() -> void:
 	var sim := LabSim.new()
+	sim.npr = 2
 	sim.set_food_cell(55, true)
 	var n := 0
 	for f in sim.food:
@@ -114,6 +117,7 @@ func test_food_resupply() -> void:
 
 func test_food_flow_density() -> void:
 	var sim := LabSim.new()
+	sim.npr = 2
 	sim.set_food_cell(55, true)
 	sim.set_food_flow(3)
 	var full := 0
@@ -131,6 +135,7 @@ func test_food_flow_density() -> void:
 func test_starvation() -> void:
 	# 9 Slugs, no food: must die out quickly and births must not create energy
 	var sim := LabSim.new()
+	sim.npr = 2
 	sim.rng.seed = 5
 	var g := Genome.from_sni([1, 3, 3, 2, 2, 10, 2], 1)
 	for k in 9:

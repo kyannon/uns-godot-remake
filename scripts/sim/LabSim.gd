@@ -23,8 +23,16 @@ enum Mode { WANDER, EAT, SEARCH, SEEK, FIGHT, MATE, ESCAPE, DYING, JUST_BORN }
 const MODE_NAMES := ["WANDER", "EAT", "SEARCH", "SEEK", "FIGHT", "MATE", "ESCAPE", "DYING", "BORN"]
 enum Need { FIGHT, MATE, EAT }
 
-# NPR settings: OFF, 25%, FULL, MAX -> game seconds per real second. TUNE
-const NPR_RATE := [0.0, 4.0, 16.0, 64.0]
+# NPR settings OFF, 25%, FULL, MAX. Measured from the original running in
+# DOSBox: the lab clock always runs (~5 game s per real s, i.e. one game
+# minute per ~12 s) and the NPR scales how active the Theroids are; at MAX
+# the frequency is off entirely and the clock runs ~35 game s per real s.
+# FULL's clock rate was not measurable in the reference recording. TUNE
+const NPR_RATE := [5.0, 5.0, 5.0, 35.0]          # game seconds per real second
+const NPR_ACTIVITY := [0.0, 0.25, 1.0, 1.0]      # creature action-rate multiplier
+const START_TIME := 12 * 3600                     # the lab clock starts at 12:00
+const START_MONTH := 7                            # ...on 07/17
+const START_DAY := 17
 # Food flow resupply interval in game seconds (lab.def: 240/120/60)
 var resupply_interval := [0, 240, 120, 60]
 # Mutation dial: % chance per birth, % change per mutation (lab.def guesses)
@@ -87,7 +95,7 @@ var population := 0
 var npr := 0
 var food_flow := 0
 var mutation_level := 0
-var game_time := 0.0          # seconds since 00:00 day 1
+var game_time := float(START_TIME)  # seconds since 00:00 on the start day
 var _step_acc := 0.0
 var _resupply_acc := 0.0
 var body_vars: Array = []     # BodyVars per body type
@@ -433,8 +441,6 @@ func count_types() -> PackedInt32Array:
 ## Advances by `real_dt` seconds of wall-clock time at the current NPR level.
 func update(real_dt: float) -> void:
 	var rate: float = NPR_RATE[npr]
-	if rate <= 0.0:
-		return
 	_step_acc += real_dt * rate
 	var budget := 64  # never spend more than 64 game-seconds per frame
 	while _step_acc >= 1.0 and budget > 0:
@@ -453,6 +459,9 @@ func step() -> void:
 		if _resupply_acc >= resupply_interval[food_flow]:
 			_resupply_acc = 0.0
 			resupply_food()
+	var activity: float = NPR_ACTIVITY[npr]
+	if activity <= 0.0:
+		return  # NPR off: Theroids are held in suspension
 	var order := living.duplicate()  # births/deaths during the step change `living`
 	var n := order.size()
 	if n == 0:
@@ -463,7 +472,7 @@ func step() -> void:
 		if not alive[i]:
 			continue
 		# The Artificial Life engine's cycle is factored by Speed.
-		acc[i] += (16.0 + gene(i, Genome.G.SPEED)) / 64.0
+		acc[i] += activity * (16.0 + gene(i, Genome.G.SPEED)) / 64.0
 		while acc[i] >= 1.0 and alive[i]:
 			acc[i] -= 1.0
 			_act(i)
@@ -885,3 +894,14 @@ func clock_hms() -> Vector3i:
 
 func day() -> int:
 	return int(game_time) / 86400 + 1
+
+
+## Calendar date shown under the clock (starts 07/17).
+func month_day() -> Vector2i:
+	var lengths := [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+	var m := START_MONTH
+	var d := START_DAY + int(game_time) / 86400
+	while d > lengths[m - 1]:
+		d -= lengths[m - 1]
+		m = m % 12 + 1
+	return Vector2i(m, d)

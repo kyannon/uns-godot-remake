@@ -7,6 +7,7 @@ func _init() -> void:
 	var designs := {"Slug": [1, 3, 3, 2, 2, 10, 2], "Hulk": [1, 3, 3, 1, 8, 6, 1], "Zip": [1, 3, 3, 8, 1, 6, 1]}
 	for name in designs:
 		var sim := LabSim.new()
+		sim.npr = 2
 		sim.rng.seed = 3
 		var g := Genome.from_sni(designs[name], 3)
 		for k in 9:

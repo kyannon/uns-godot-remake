@@ -48,7 +48,7 @@ the same engine on a 260x100 map with terrain).
 | Nutrition: subtracted from Eat, added to Stamina | `_try_graze`. Hunger rises as stamina is burned (one nutrition-worth of energy = full Eat need); a creature with Eat maxed out is starving and burns extra stamina. Newborns' stamina is paid by the parents, so a foodless pen dies out |
 | Mutation chance & amount per dial level; mutable attributes | `_give_birth` |
 | Viruses X (stamina, sexually transmitted), Y (vision), Z (sterility) | phenotype modifiers; inherited from either parent |
-| NPR OFF/25%/FULL/MAX | game-seconds per real second: 0/4/16/64; set by dragging the knob beside the vial (or clicking the labels) |
+| NPR OFF/25%/FULL/MAX | Measured from the original in DOSBox: the clock always runs, ~5 game s per real s (12 real s per game minute) at OFF/25%, ~35 at MAX; FULL not yet measured. NPR scales creature activity 0 / 0.25 / 1 / 1. Knob beside the vial; red fluid rises ~20 px/s |
 
 Numbers the manual doesn't give are tagged `TUNE` in `LabSim.gd`. The current
 values give a stable population of ~1000 in the three demo pens with food flow

@@ -30,7 +30,11 @@ const DISK_DRIVE := Rect2(286, 118, 32, 80)
 
 # NPR "fuel tank": click the labels. Order: OFF, 25%, FULL, MAX
 const NPR_LABELS := [Rect2(46, 100, 22, 8), Rect2(46, 92, 22, 8), Rect2(46, 76, 22, 8), Rect2(46, 66, 22, 8)]
-const NPR_LEVEL_Y := [104, 96, 80, 71]          # tick marks for OFF, 25%, FULL, MAX
+const NPR_LEVEL_Y := [104, 96, 80, 70]          # fluid top for OFF, 25%, FULL, MAX (measured)
+const NPR_FLUID_BOTTOM := 105
+const NPR_FLUID_COLS := [Vector2i(69, 1), Vector2i(72, 5)]  # x, width (glass highlight at 70-71)
+const NPR_FLUID_SPEED := 20.0                    # px per real second (measured)
+const COL_NPR_FLUID := 30
 const NPR_TRACK := Rect2(80, 64, 10, 46)         # drag area around the slider track (al1 #11 at 81,68)
 const NPR_KNOB := 12                             # al1: red ball, 7x6, centred on the level
 const NPR_KNOB_X := 81
@@ -53,8 +57,17 @@ const CLOCK_LIGHTS := [
 	[Vector2(100, 21), Vector2(101, 21)], [Vector2(102, 16)], [Vector2(107, 12)],
 ]
 const COL_CLOCK_LIT := 38
+const CLOCK_LED := Vector2(113.5, 14.0)          # big top LED, blinks once per second
+const COL_MENU_BG := [54, 1]                     # yellow/white checkerboard behind the disk menu
+# Zoom 2 (5x) colours sampled from the original
+const Z2_SCALE := 5.0
+const COL_Z2_FLOOR := 22
+const COL_Z2_FOOD := 63
+const COL_Z2_WALL := 10
+const COL_Z2_WALL_HI := 4
+const COL_Z2_WALL_LO := 13
 const CLOCK_TIME := Vector2(104, 19)
-const CLOCK_DATE := Vector2(106, 43)
+const CLOCK_DATE := Vector2(104, 43)
 
 # --- Habitat module: Synthetic Neural Injector (SNI) ---
 const SNI_ROWS_Y := [127, 135, 143, 153, 161, 169, 177]   # bar rows, 5px tall
