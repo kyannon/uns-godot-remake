@@ -98,6 +98,14 @@ This writes every image as PNG (named `<file>_<index>.png`) plus
 same names in a folder and set `hires_pack` in `user://settings.cfg`. They are
 drawn into the original's logical rectangles at full window resolution.
 
+## License
+
+The remake's source code is licensed under the **GNU General Public License
+v3.0**; see [LICENSE](LICENSE). The license covers this project's code and
+documentation only. It does not cover Unnatural Selection's original data
+files, which remain the property of their owners and must come from your own
+copy of the game.
+
 ## Legal
 
 Unnatural Selection is © 1993 Maxis / Electronic Arts. This project is an
